@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -55,6 +56,10 @@ type CloudNodeController struct {
 	cloud cloudprovider.Interface
 
 	nodeStatusUpdateFrequency time.Duration
+
+	// Map of node names to machine IDs of nodes that have already been initialized.
+	initializedNodes      map[string]string
+	initializedNodesMutex *sync.Mutex
 }
 
 const (
@@ -88,6 +93,8 @@ func NewCloudNodeController(
 		recorder:                  recorder,
 		cloud:                     cloud,
 		nodeStatusUpdateFrequency: nodeStatusUpdateFrequency,
+		initializedNodes:          make(map[string]string),
+		initializedNodesMutex:     &sync.Mutex{},
 	}
 
 	// Use shared informer to listen to add/update of nodes. Note that any nodes
@@ -204,8 +211,16 @@ func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
 		return
 	}
 
-	cloudTaint := getCloudTaint(node.Spec.Taints)
-	if cloudTaint == nil {
+	// Check if a node has been added to the initialized nodes map,
+	// meaning that it has already reached the end of the initializeNode method.
+	// If the name is found but the machine ID does not match then it is a new
+	// node using the same name as a node that was previously deleted.
+	cnc.initializedNodesMutex.Lock()
+	machineID, found := cnc.initializedNodes[node.Name]
+	cnc.initializedNodesMutex.Unlock()
+	alreadyInitialized := found && (machineID == node.Status.NodeInfo.MachineID)
+
+	if alreadyInitialized {
 		// The node has already been initialized so nothing to do.
 		return
 	}
@@ -318,6 +333,10 @@ func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
 		utilruntime.HandleError(err)
 		return
 	}
+
+	cnc.initializedNodesMutex.Lock()
+	cnc.initializedNodes[node.Name] = node.Status.NodeInfo.MachineID
+	cnc.initializedNodesMutex.Unlock()
 
 	klog.Infof("Successfully initialized node %s with cloud provider", node.Name)
 }
