@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -194,6 +195,12 @@ func Run(c *cloudcontrollerconfig.CompletedConfig, stopCh <-chan struct{}) error
 		klog.Fatalf("error creating lock: %v", err)
 	}
 
+	defer func() {
+		if r := recover(); r != nil {
+			klog.Info(string(debug.Stack()))
+		}
+	}()
+
 	// Try and become the leader and start cloud controller manager loops
 	leaderelection.RunOrDie(context.TODO(), leaderelection.LeaderElectionConfig{
 		Lock:          rl,
@@ -203,6 +210,7 @@ func Run(c *cloudcontrollerconfig.CompletedConfig, stopCh <-chan struct{}) error
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: run,
 			OnStoppedLeading: func() {
+				pancic("LOST")
 				klog.Fatalf("leaderelection lost")
 			},
 		},
