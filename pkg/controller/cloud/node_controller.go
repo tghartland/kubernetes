@@ -256,6 +256,7 @@ func (cnc *CloudNodeController) AddCloudNode(obj interface{}) {
 
 // This processes nodes that were added into the cluster, and cloud initialize them if appropriate
 func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
+	startTime := time.Now()
 
 	instances, ok := cnc.cloud.Instances()
 	if !ok {
@@ -351,7 +352,7 @@ func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
 	cnc.recentlyInitializedNodes.Insert(node.Name)
 	cnc.recentlyInitializedNodesMutex.Unlock()
 
-	klog.Infof("Successfully initialized node %s with cloud provider", node.Name)
+	klog.Infof("Successfully initialized node %s with cloud provider, time=%f", node.Name, time.Since(startTime).Seconds())
 }
 
 func getCloudTaint(taints []v1.Taint) *v1.Taint {
