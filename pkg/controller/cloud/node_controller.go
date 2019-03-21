@@ -245,6 +245,16 @@ func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
 func (cnc *CloudNodeController) AddCloudNode(obj interface{}) {
 	node := obj.(*v1.Node)
 
+	// If the name exists in the recently initialized nodes set
+	// then it may have been left over from an older node
+	// with the same name, and should be removed now.
+	cnc.recentlyInitializedNodesMutex.Lock()
+	recentlyInitialized := cnc.recentlyInitializedNodes.Has(node.Name)
+	if recentlyInitialized {
+		cnc.recentlyInitializedNodes.Delete(node.Name)
+	}
+	cnc.recentlyInitializedNodesMutex.Unlock()
+
 	cloudTaint := getCloudTaint(node.Spec.Taints)
 	if cloudTaint == nil {
 		klog.V(2).Infof("This node %s is registered without the cloud taint. Will not process.", node.Name)
