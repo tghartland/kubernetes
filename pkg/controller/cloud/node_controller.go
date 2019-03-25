@@ -58,7 +58,9 @@ type CloudNodeController struct {
 
 	nodeStatusUpdateFrequency time.Duration
 
-	// Map of node names to machine IDs of nodes that have already been initialized.
+	// Set of node names that have been initialized recently.
+	// Used to discard UpdateCloudNode events in which the received node object still
+	// has the cloud taint, even though the node has actually been initialized.
 	recentlyInitializedNodes      sets.String
 	recentlyInitializedNodesMutex *sync.Mutex
 }
@@ -213,9 +215,7 @@ func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
 	}
 
 	// Check if a node has been added to the recently initialized nodes set,
-	// meaning that it has already reached the end of the initializeNode method.
-	// If the name is found but the machine ID does not match then it is a new
-	// node using the same name as a node that was previously deleted.
+	// meaning that it has already successfully reached the end of the initializeNode method.
 	cnc.recentlyInitializedNodesMutex.Lock()
 	recentlyInitialized := cnc.recentlyInitializedNodes.Has(node.Name)
 	if recentlyInitialized {
