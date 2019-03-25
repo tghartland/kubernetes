@@ -18,6 +18,7 @@ package cloud
 
 import (
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/record"
 	cloudprovider "k8s.io/cloud-provider"
@@ -222,11 +224,13 @@ func TestNodeInitialized(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:                fnh,
-		nodeInformer:              factory.Core().V1().Nodes(),
-		cloud:                     fakeCloud,
-		recorder:                  eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
-		nodeStatusUpdateFrequency: 1 * time.Second,
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		nodeStatusUpdateFrequency:     1 * time.Second,
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -287,10 +291,12 @@ func TestNodeIgnored(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:   fnh,
-		nodeInformer: factory.Core().V1().Nodes(),
-		cloud:        fakeCloud,
-		recorder:     eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -360,10 +366,12 @@ func TestGCECondition(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:   fnh,
-		nodeInformer: factory.Core().V1().Nodes(),
-		cloud:        fakeCloud,
-		recorder:     eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -449,10 +457,12 @@ func TestZoneInitialized(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:   fnh,
-		nodeInformer: factory.Core().V1().Nodes(),
-		cloud:        fakeCloud,
-		recorder:     eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -538,11 +548,13 @@ func TestNodeAddresses(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:                fnh,
-		nodeInformer:              factory.Core().V1().Nodes(),
-		cloud:                     fakeCloud,
-		nodeStatusUpdateFrequency: 1 * time.Second,
-		recorder:                  eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		nodeStatusUpdateFrequency:     1 * time.Second,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -650,11 +662,13 @@ func TestNodeProvidedIPAddresses(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:                fnh,
-		nodeInformer:              factory.Core().V1().Nodes(),
-		cloud:                     fakeCloud,
-		nodeStatusUpdateFrequency: 1 * time.Second,
-		recorder:                  eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		nodeStatusUpdateFrequency:     1 * time.Second,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -860,9 +874,11 @@ func TestNodeAddressesNotUpdate(t *testing.T) {
 	}
 
 	cloudNodeController := &CloudNodeController{
-		kubeClient:   fnh,
-		nodeInformer: factory.Core().V1().Nodes(),
-		cloud:        fakeCloud,
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 
 	cloudNodeController.updateNodeAddress(fnh.Existing[0], fakeCloud)
@@ -939,11 +955,13 @@ func TestNodeProviderID(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:                fnh,
-		nodeInformer:              factory.Core().V1().Nodes(),
-		cloud:                     fakeCloud,
-		nodeStatusUpdateFrequency: 1 * time.Second,
-		recorder:                  eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		nodeStatusUpdateFrequency:     1 * time.Second,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
@@ -1022,11 +1040,13 @@ func TestNodeProviderIDAlreadySet(t *testing.T) {
 
 	eventBroadcaster := record.NewBroadcaster()
 	cloudNodeController := &CloudNodeController{
-		kubeClient:                fnh,
-		nodeInformer:              factory.Core().V1().Nodes(),
-		cloud:                     fakeCloud,
-		nodeStatusUpdateFrequency: 1 * time.Second,
-		recorder:                  eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		kubeClient:                    fnh,
+		nodeInformer:                  factory.Core().V1().Nodes(),
+		cloud:                         fakeCloud,
+		nodeStatusUpdateFrequency:     1 * time.Second,
+		recorder:                      eventBroadcaster.NewRecorder(scheme.Scheme, v1.EventSource{Component: "cloud-node-controller"}),
+		recentlyInitializedNodes:      sets.NewString(),
+		recentlyInitializedNodesMutex: &sync.Mutex{},
 	}
 	eventBroadcaster.StartLogging(klog.Infof)
 
