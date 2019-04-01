@@ -222,9 +222,9 @@ func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
 		klog.V(0).Infof("Node %s is in the recently initialized nodes set, will not re-process", node.Name)
 	}
 
-	// If a node does not have the cloud taint it is safe to remove from
-	// the recently initialized nodes set, as the lack of a cloud taint will
-	// prevent it from being initialized again.
+	// If the received node does not have the cloud taint it is safe to remove
+	// from the recently initialized nodes set, as the lack of a cloud taint
+	// will prevent it from being initialized again.
 	cloudTaint := getCloudTaint(node.Spec.Taints)
 	if cloudTaint == nil && recentlyInitialized {
 		klog.V(0).Infof("Node %s is being removed from the recently initialized set as its update events no longer have the cloud taint", node.Name)
