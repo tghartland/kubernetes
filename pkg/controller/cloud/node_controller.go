@@ -204,6 +204,16 @@ func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
 		return
 	}
 
+	lastHeartbeat := metav1.Time{}
+	conditions := node.Status.Conditions
+	for _, cond := range conditions {
+		if cond.LastHeartbeatTime.After(lastHeartbeat.Time) {
+			lastHeartbeat = cond.LastHeartbeatTime
+		}
+	}
+
+	klog.Infof("Update %s, age %.01f", node.Name, time.Since(lastHeartbeat.Time).Seconds())
+
 	cloudTaint := getCloudTaint(node.Spec.Taints)
 	if cloudTaint == nil {
 		// The node has already been initialized so nothing to do.
