@@ -212,10 +212,12 @@ func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
 		}
 	}
 
-	klog.Infof("Update %s, age %.01f", node.Name, time.Since(lastHeartbeat.Time).Seconds())
+	age := time.Since(lastHeartbeat.Time)
+
+	klog.Infof("Update %s, age %.01f", node.Name, age.Seconds())
 
 	cloudTaint := getCloudTaint(node.Spec.Taints)
-	if cloudTaint == nil {
+	if cloudTaint == nil || age > 25*time.Second {
 		// The node has already been initialized so nothing to do.
 		return
 	}
