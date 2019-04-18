@@ -49,6 +49,7 @@ var UpdateNodeSpecBackoff = wait.Backoff{
 
 type CloudNodeController struct {
 	nodeInformer coreinformers.NodeInformer
+	nodeQueue    *cache.FIFO
 	kubeClient   clientset.Interface
 	recorder     record.EventRecorder
 
@@ -82,8 +83,11 @@ func NewCloudNodeController(
 		klog.V(0).Infof("No api server defined - no events will be sent to API server.")
 	}
 
+	queue := cache.NewFIFO(cache.MetaNamespaceKeyFunc)
+
 	cnc := &CloudNodeController{
 		nodeInformer:              nodeInformer,
+		nodeQueue:                 queue,
 		kubeClient:                kubeClient,
 		recorder:                  recorder,
 		cloud:                     cloud,
@@ -93,8 +97,8 @@ func NewCloudNodeController(
 	// Use shared informer to listen to add/update of nodes. Note that any nodes
 	// that exist before node controller starts will show up in the update method
 	cnc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    cnc.AddCloudNode,
-		UpdateFunc: cnc.UpdateCloudNode,
+		AddFunc:    cnc.AddNodeToQueue,
+		UpdateFunc: cnc.AddNodeToQueue,
 	})
 
 	return cnc
@@ -106,12 +110,21 @@ func NewCloudNodeController(
 func (cnc *CloudNodeController) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 
+	go cnc.ProcessFromQueue()
+
 	// The following loops run communicate with the APIServer with a worst case complexity
 	// of O(num_nodes) per cycle. These functions are justified here because these events fire
 	// very infrequently. DO NOT MODIFY this to perform frequent operations.
 
 	// Start a loop to periodically update the node addresses obtained from the cloud
 	wait.Until(cnc.UpdateNodeStatus, cnc.nodeStatusUpdateFrequency, stopCh)
+}
+
+func (cnc *CloudNodeController) ProcessFromQueue() {
+	for {
+		node := cache.Pop(cnc.nodeQueue).(*v1.Node)
+		cnc.checkAndInitializeNode(node)
+	}
 }
 
 // UpdateNodeStatus updates the node status, such as node addresses
@@ -195,6 +208,26 @@ func (cnc *CloudNodeController) updateNodeAddress(node *v1.Node, instances cloud
 	if err != nil {
 		klog.Errorf("Error patching node with cloud ip addresses = [%v]", err)
 	}
+}
+
+func (cnc *CloudNodeController) AddNodeToQueue(_, newObj interface{}) {
+	node, ok := newObj.(*v1.Node)
+	if !ok {
+		utilruntime.HandleError(fmt.Errorf("unexpected object type: %v", newObj))
+		return
+	}
+
+	cnc.nodeQueue.Add(node)
+}
+
+func (cnc *CloudNodeController) checkAndInitializeNode(node *v1.Node) {
+	cloudTaint := getCloudTaint(node.Spec.Taints)
+
+	if cloudTaint == nil {
+		return
+	}
+
+	cnc.initializeNode(node)
 }
 
 func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
