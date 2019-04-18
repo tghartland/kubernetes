@@ -49,6 +49,7 @@ var UpdateNodeSpecBackoff = wait.Backoff{
 
 type CloudNodeController struct {
 	nodeInformer coreinformers.NodeInformer
+	nodeQueue    *cache.FIFO
 	kubeClient   clientset.Interface
 	recorder     record.EventRecorder
 
@@ -82,8 +83,11 @@ func NewCloudNodeController(
 		klog.V(0).Infof("No api server defined - no events will be sent to API server.")
 	}
 
+	queue := cache.NewFIFO(cache.MetaNamespaceKeyFunc)
+
 	cnc := &CloudNodeController{
 		nodeInformer:              nodeInformer,
+		nodeQueue:                 queue,
 		kubeClient:                kubeClient,
 		recorder:                  recorder,
 		cloud:                     cloud,
@@ -93,8 +97,8 @@ func NewCloudNodeController(
 	// Use shared informer to listen to add/update of nodes. Note that any nodes
 	// that exist before node controller starts will show up in the update method
 	cnc.nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    cnc.AddCloudNode,
-		UpdateFunc: cnc.UpdateCloudNode,
+		AddFunc:    cnc.AddNodeToQueue,
+		UpdateFunc: func(_, newObj interface{}) { cnc.AddNodeToQueue(newObj) },
 	})
 
 	return cnc
@@ -106,12 +110,21 @@ func NewCloudNodeController(
 func (cnc *CloudNodeController) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
 
+	go wait.Until(cnc.ProcessNodeFromQueue, 0, stopCh)
+
 	// The following loops run communicate with the APIServer with a worst case complexity
 	// of O(num_nodes) per cycle. These functions are justified here because these events fire
 	// very infrequently. DO NOT MODIFY this to perform frequent operations.
 
 	// Start a loop to periodically update the node addresses obtained from the cloud
 	wait.Until(cnc.UpdateNodeStatus, cnc.nodeStatusUpdateFrequency, stopCh)
+}
+
+// ProcessNodesFromQueue reads the next node event from the FIFO node queue
+// and processes it with checkAndInitializeNode.
+func (cnc *CloudNodeController) ProcessNodeFromQueue() {
+	node := cache.Pop(cnc.nodeQueue).(*v1.Node)
+	cnc.checkAndInitializeNode(node)
 }
 
 // UpdateNodeStatus updates the node status, such as node addresses
@@ -197,29 +210,22 @@ func (cnc *CloudNodeController) updateNodeAddress(node *v1.Node, instances cloud
 	}
 }
 
-func (cnc *CloudNodeController) UpdateCloudNode(_, newObj interface{}) {
+func (cnc *CloudNodeController) AddNodeToQueue(newObj interface{}) {
 	node, ok := newObj.(*v1.Node)
 	if !ok {
 		utilruntime.HandleError(fmt.Errorf("unexpected object type: %v", newObj))
 		return
 	}
 
-	cloudTaint := getCloudTaint(node.Spec.Taints)
-	if cloudTaint == nil {
-		// The node has already been initialized so nothing to do.
-		return
-	}
-
-	cnc.initializeNode(node)
+	cnc.nodeQueue.Add(node)
 }
 
-// AddCloudNode handles initializing new nodes registered with the cloud taint.
-func (cnc *CloudNodeController) AddCloudNode(obj interface{}) {
-	node := obj.(*v1.Node)
-
+// checkAndInitializeNode checks if a node has the cloud taint on it, and passes it
+// to initializeNode to be initialized if it does.
+func (cnc *CloudNodeController) checkAndInitializeNode(node *v1.Node) {
 	cloudTaint := getCloudTaint(node.Spec.Taints)
+
 	if cloudTaint == nil {
-		klog.V(2).Infof("This node %s is registered without the cloud taint. Will not process.", node.Name)
 		return
 	}
 
