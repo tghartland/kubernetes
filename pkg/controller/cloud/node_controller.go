@@ -236,6 +236,18 @@ func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
 	}
 
 	err := clientretry.RetryOnConflict(UpdateNodeSpecBackoff, func() error {
+		curNode, err := cnc.kubeClient.CoreV1().Nodes().Get(node.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		cloudTaint := getCloudTaint(curNode.Spec.Taints)
+		if cloudTaint == nil {
+			// Node object received from event had the cloud taint but was outdated,
+			// the node has actually already been initialized.
+			return nil
+		}
+
 		// TODO(wlan0): Move this logic to the route controller using the node taint instead of condition
 		// Since there are node taints, do we still need this?
 		// This condition marks the node as unusable until routes are initialized in the cloud provider
@@ -249,11 +261,6 @@ func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
 			}); err != nil {
 				return err
 			}
-		}
-
-		curNode, err := cnc.kubeClient.CoreV1().Nodes().Get(node.Name, metav1.GetOptions{})
-		if err != nil {
-			return err
 		}
 
 		if curNode.Spec.ProviderID == "" {
@@ -312,14 +319,14 @@ func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
 		// After adding, call UpdateNodeAddress to set the CloudProvider provided IPAddresses
 		// So that users do not see any significant delay in IP addresses being filled into the node
 		cnc.updateNodeAddress(curNode, instances)
+
+		klog.Infof("Successfully initialized node %s with cloud provider", node.Name)
 		return nil
 	})
 	if err != nil {
 		utilruntime.HandleError(err)
 		return
 	}
-
-	klog.Infof("Successfully initialized node %s with cloud provider", node.Name)
 }
 
 func getCloudTaint(taints []v1.Taint) *v1.Taint {
