@@ -256,6 +256,12 @@ func (cnc *CloudNodeController) initializeNode(node *v1.Node) {
 			return err
 		}
 
+		cloudTaint := getCloudTaint(curNode.Spec.Taints)
+		if cloudTaint == nil {
+			// Node object from event had the cloud taint but was outdated
+			return nil
+		}
+
 		if curNode.Spec.ProviderID == "" {
 			providerID, err := cloudprovider.GetInstanceProviderID(context.TODO(), cnc.cloud, types.NodeName(curNode.Name))
 			if err == nil {
